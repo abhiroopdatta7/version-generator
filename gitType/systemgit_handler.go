@@ -1,0 +1,221 @@
+package gitType
+
+import (
+	"fmt"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// SystemGitHandler implements GitHandler using system git executable
+type SystemGitHandler struct {
+	repoPath string
+}
+
+// NewSystemGitHandler creates a new system git handler
+func NewSystemGitHandler(repoPath string) (*SystemGitHandler, error) {
+	// Check if git is available
+	_, err := exec.LookPath("git")
+	if err != nil {
+		return nil, fmt.Errorf("git executable not found: %w", err)
+	}
+
+	return &SystemGitHandler{repoPath: repoPath}, nil
+}
+
+// runGitCommand executes a git command and returns the output
+func (s *SystemGitHandler) runGitCommand(args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = s.repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git command failed: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// GenerateVersionInfo generates version information using system git
+func (s *SystemGitHandler) GenerateVersionInfo(dockerFormat bool) (*VersionInfo, error) {
+	// Get current branch
+	branchName, err := s.GetCurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get short hash
+	shortHash, err := s.GetShortHash()
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the last tag
+	lastTag, err := s.GetLastTag(branchName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Count commits since last tag
+	commitsSince, err := s.GetCommitsSinceTag(lastTag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate version string
+	version := s.generateVersionString(lastTag, commitsSince, shortHash, branchName, dockerFormat)
+
+	return &VersionInfo{
+		Branch:       branchName,
+		LastTag:      lastTag,
+		CommitsSince: commitsSince,
+		ShortHash:    shortHash,
+		Version:      version,
+	}, nil
+}
+
+// GetCurrentBranch returns the current branch name
+func (s *SystemGitHandler) GetCurrentBranch() (string, error) {
+	output, err := s.runGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+
+	// If in detached HEAD state, return short hash
+	if output == "HEAD" {
+		return s.GetShortHash()
+	}
+
+	return output, nil
+}
+
+// GetShortHash returns the short hash of current commit
+func (s *SystemGitHandler) GetShortHash() (string, error) {
+	output, err := s.runGitCommand("rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get short hash: %w", err)
+	}
+	return output, nil
+}
+
+// GetLastTag finds the last reachable tag
+func (s *SystemGitHandler) GetLastTag(branchName string) (string, error) {
+	// For non-main/master branches, find tags from the merge-base with main/master
+	if branchName != "main" && branchName != "master" {
+		return s.findTagFromRebasePoint(branchName)
+	}
+
+	// For main/master branches, find the most recent tag
+	output, err := s.runGitCommand("describe", "--tags", "--abbrev=0")
+	if err != nil {
+		// No tags found
+		return "v0.0.0", nil
+	}
+
+	return output, nil
+}
+
+// findTagFromRebasePoint finds tags from the rebase point for feature branches
+func (s *SystemGitHandler) findTagFromRebasePoint(branchName string) (string, error) {
+	// Try to find main or master branch and get merge-base
+	var mergeBase string
+	var err error
+
+	// Try main first
+	mergeBase, err = s.runGitCommand("merge-base", "HEAD", "main")
+	if err != nil {
+		// Try master
+		mergeBase, err = s.runGitCommand("merge-base", "HEAD", "master")
+		if err != nil {
+			// If no main/master branch found, fall back to current branch logic
+			return s.GetLastTag("main") // This will use the regular logic
+		}
+	}
+
+	// Find the most recent tag reachable from the merge-base
+	output, err := s.runGitCommand("describe", "--tags", "--abbrev=0", mergeBase)
+	if err != nil {
+		// No tags found
+		return "v0.0.0", nil
+	}
+
+	return output, nil
+}
+
+// GetCommitsSinceTag counts commits since the specified tag
+func (s *SystemGitHandler) GetCommitsSinceTag(tagName string) (int, error) {
+	if tagName == "v0.0.0" {
+		// Count all commits if no tag exists
+		output, err := s.runGitCommand("rev-list", "--count", "HEAD")
+		if err != nil {
+			return 0, fmt.Errorf("failed to count all commits: %w", err)
+		}
+
+		count, err := strconv.Atoi(output)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse commit count: %w", err)
+		}
+
+		return count, nil
+	}
+
+	// Check if we're exactly on the tag
+	currentHash, err := s.runGitCommand("rev-parse", "HEAD")
+	if err != nil {
+		return 0, fmt.Errorf("failed to get current commit hash: %w", err)
+	}
+
+	tagHash, err := s.runGitCommand("rev-parse", tagName+"^{commit}")
+	if err != nil {
+		return 0, fmt.Errorf("failed to get tag commit hash: %w", err)
+	}
+
+	if currentHash == tagHash {
+		return 0, nil
+	}
+
+	// Count commits since tag
+	output, err := s.runGitCommand("rev-list", "--count", "HEAD", "^"+tagName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count commits since tag: %w", err)
+	}
+
+	count, err := strconv.Atoi(output)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse commit count: %w", err)
+	}
+
+	return count, nil
+}
+
+// generateVersionString generates the version string
+func (s *SystemGitHandler) generateVersionString(lastTag string, commitsSince int, shortHash, branchName string, dockerFormat bool) string {
+	if commitsSince == 0 {
+		// We're exactly on a tag
+		return lastTag
+	}
+
+	// For main/master branches, don't include branch name in version
+	if branchName == "main" || branchName == "master" {
+		if dockerFormat {
+			// Docker format: <tag>-<count>
+			return fmt.Sprintf("%s-%d", lastTag, commitsSince)
+		} else {
+			// Default format: <tag>+<count>
+			return fmt.Sprintf("%s+%d", lastTag, commitsSince)
+		}
+	}
+
+	// For other branches, clean branch name and include it in version string
+	cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+
+	// Choose format based on dockerFormat flag
+	if dockerFormat {
+		// Docker format: <tag>-<branch>-<count of commit>
+		return fmt.Sprintf("%s-%s-%d", lastTag, cleanBranch, commitsSince)
+	} else {
+		// Default format: <tag>-<branch>+<count of commit>
+		return fmt.Sprintf("%s-%s+%d", lastTag, cleanBranch, commitsSince)
+	}
+}
