@@ -82,27 +82,27 @@ jobs:
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
+      with:
+        path: artifacts
 
     - name: Create release assets
       run: |
-        for dir in version-generator-*; do
+        cd artifacts
+        for dir in */; do
           if [ -d "$dir" ]; then
             cd "$dir"
             if ls *.exe 1> /dev/null 2>&1; then
-              zip "../${dir}.zip" *.exe
+              zip "../${dir%/}.zip" *
             else
-              tar -czf "../${dir}.tar.gz" *
+              tar -czf "../${dir%/}.tar.gz" *
             fi
             cd ..
           fi
         done
 
     - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: artifacts/*.{zip,tar.gz}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        for file in *.zip *.tar.gz; do
-          if [ -f "$file" ]; then
-            gh release upload ${{ github.event.release.tag_name }} "$file"
-          fi
-        done
