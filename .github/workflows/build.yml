@@ -8,6 +8,9 @@ on:
   release:
     types: [ created ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -103,6 +106,8 @@ jobs:
     - name: Upload release assets
       uses: softprops/action-gh-release@v1
       with:
-        files: artifacts/*.{zip,tar.gz}
+        files: |
+          artifacts/*.zip
+          artifacts/*.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
