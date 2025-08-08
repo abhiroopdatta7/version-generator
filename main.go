@@ -21,23 +21,45 @@ type VersionInfo struct {
 }
 
 type CLI struct {
-	Docker     bool   `kong:"short='d',help='Use Docker version format'"`
-	InBuiltGit bool   `kong:"short='i',help='Use built-in go-git library instead of system git'"`
-	Go         bool   `kong:"short='g',help='Generate Go format version file'"`
-	GoPath     string `kong:"help='Path for Go file (default: version.go)',placeholder='PATH'"`
-	Cpp        bool   `kong:"short='c',help='Generate C++ format version file'"`
-	CppPath    string `kong:"help='Path for C++ file (default: version.h)',placeholder='PATH'"`
-	Yaml       bool   `kong:"short='y',help='Generate YAML format version file'"`
-	YamlPath   string `kong:"help='Path for YAML file (default: version.yaml)',placeholder='PATH'"`
-	File       bool   `kong:"short='f',help='Write version to file'"`
-	FilePath   string `kong:"help='Path for file (default: .VERSION)',placeholder='PATH'"`
+	Version    kong.VersionFlag `kong:"short='v',help='Show version information'"`
+	Docker     bool             `kong:"short='d',help='Use Docker version format'"`
+	InBuiltGit bool             `kong:"short='i',help='Use built-in go-git library instead of system git'"`
+	Go         bool             `kong:"short='g',help='Generate Go format version file'"`
+	GoPath     string           `kong:"help='Path for Go file (default: version.go)',placeholder='PATH'"`
+	Cpp        bool             `kong:"short='c',help='Generate C++ format version file'"`
+	CppPath    string           `kong:"help='Path for C++ file (default: version.h)',placeholder='PATH'"`
+	Yaml       bool             `kong:"short='y',help='Generate YAML format version file'"`
+	YamlPath   string           `kong:"help='Path for YAML file (default: version.yaml)',placeholder='PATH'"`
+	File       bool             `kong:"short='f',help='Write version to file'"`
+	FilePath   string           `kong:"help='Path for file (default: .VERSION)',placeholder='PATH'"`
+}
+
+// getAppVersion returns the version of the application using git
+func getAppVersion() string {
+	// Use the same logic as the application to get version
+	gitHandler, err := gittype.GetGitHandler(false, ".")
+	if err != nil {
+		return "unknown"
+	}
+	
+	versionInfo, err := gitHandler.GenerateVersionInfo(false)
+	if err != nil {
+		return "unknown"
+	}
+	
+	return versionInfo.Version
 }
 
 func main() {
 	var cli CLI
+	
+	// Get version for help display
+	version := getAppVersion()
+	
 	kong.Parse(&cli,
 		kong.Name("version-generator"),
-		kong.Description("Git Version Generator - Generate version numbers from git repository state"),
+		kong.Description(fmt.Sprintf("Git Version Generator - Generate version numbers from git repository state\n\nVersion: %s", version)),
+		kong.Vars{"version": version},
 		kong.UsageOnError(),
 		kong.ConfigureHelp(kong.HelpOptions{
 			Compact: true,
