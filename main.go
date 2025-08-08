@@ -8,6 +8,7 @@ import (
 
 	filetype "version-generator/fileType"
 	gittype "version-generator/gitType"
+	"version-generator/versionSchemes"
 
 	"github.com/alecthomas/kong"
 )
@@ -76,7 +77,7 @@ func main() {
 	}
 
 	// Determine versioning options
-	options := gittype.VersioningOptions{
+	options := versionSchemes.VersioningOptions{
 		Semver: cli.Semver,
 		CalVer: cli.CalVer,
 		Simple: cli.Simple,

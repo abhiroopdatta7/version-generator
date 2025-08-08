@@ -1,5 +1,7 @@
 package gitType
 
+import "version-generator/versionSchemes"
+
 // VersionInfo contains git version information
 type VersionInfo struct {
 	Branch       string
@@ -10,12 +12,8 @@ type VersionInfo struct {
 }
 
 // VersioningOptions defines different versioning scheme options
-type VersioningOptions struct {
-	Semver bool // Use Semantic Versioning: v1.2.3-alpha.4 or v1.2.3-beta.4+branch
-	CalVer bool // Use Calendar Versioning: 2024.08.4 or 2024.08.4-branch
-	Simple bool // Use simple format: v1.2.3 (no branch/commit info)
-	Hash   bool // Include short hash in version
-}
+// Deprecated: Use versionSchemes.VersioningOptions instead
+type VersioningOptions = versionSchemes.VersioningOptions
 
 // GitHandler interface defines methods for git operations
 type GitHandler interface {
@@ -23,7 +21,7 @@ type GitHandler interface {
 	GenerateVersionInfo(dockerFormat bool) (*VersionInfo, error)
 
 	// GenerateVersionInfoWithOptions generates version with custom options
-	GenerateVersionInfoWithOptions(options VersioningOptions) (*VersionInfo, error)
+	GenerateVersionInfoWithOptions(options versionSchemes.VersioningOptions) (*VersionInfo, error)
 
 	// GetCurrentBranch returns the current branch name
 	GetCurrentBranch() (string, error)
