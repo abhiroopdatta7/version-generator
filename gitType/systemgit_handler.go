@@ -82,9 +82,29 @@ func (s *SystemGitHandler) GetCurrentBranch() (string, error) {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
 
-	// If in detached HEAD state, return short hash
+	// If in detached HEAD state, try to find which branch contains this commit
 	if output == "HEAD" {
-		return s.GetShortHash()
+		// Try to find a branch that contains the current commit
+		branchOutput, err := s.runGitCommand("branch", "--contains", "HEAD")
+		if err == nil && branchOutput != "" {
+			// Parse the output to get the first branch name
+			lines := strings.Split(strings.TrimSpace(branchOutput), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "*") {
+					// Remove any leading characters and return the branch name
+					if strings.HasPrefix(line, "* ") {
+						line = line[2:]
+					}
+					// Skip detached HEAD indicators
+					if !strings.Contains(line, "detached") && !strings.Contains(line, "HEAD") {
+						return line, nil
+					}
+				}
+			}
+		}
+		// If no branch found or all were detached indicators, return "detached"
+		return "detached", nil
 	}
 
 	return output, nil

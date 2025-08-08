@@ -73,8 +73,52 @@ func (g *GoGitHandler) GetCurrentBranch() (string, error) {
 	if head.Name().IsBranch() {
 		return head.Name().Short(), nil
 	}
-	// If it's a detached HEAD, return the hash
-	return head.Hash().String()[:7], nil
+	
+	// If it's a detached HEAD, try to find which branch contains this commit
+	currentHash := head.Hash()
+	
+	// Get all branch references
+	refs, err := g.repo.References()
+	if err != nil {
+		return "detached", nil
+	}
+	
+	err = refs.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsBranch() {
+			// Check if this branch contains the current commit
+			branchCommit, err := g.repo.CommitObject(ref.Hash())
+			if err != nil {
+				return nil // Continue to next branch
+			}
+			
+			// Walk through the branch history to see if it contains our commit
+			iter := object.NewCommitPreorderIter(branchCommit, nil, nil)
+			defer iter.Close()
+			
+			found := false
+			iter.ForEach(func(c *object.Commit) error {
+				if c.Hash == currentHash {
+					found = true
+					return fmt.Errorf("found") // Break the loop
+				}
+				return nil
+			})
+			
+			if found {
+				return fmt.Errorf("branch:%s", ref.Name().Short()) // Break and return this branch
+			}
+		}
+		return nil
+	})
+	
+	if err != nil && err.Error() != "" {
+		if errMsg := err.Error(); len(errMsg) > 7 && errMsg[:7] == "branch:" {
+			return errMsg[7:], nil
+		}
+	}
+	
+	// If no branch found, return "detached"
+	return "detached", nil
 }
 
 // GetShortHash returns the short hash of current commit
