@@ -57,6 +57,16 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
+    - name: Get version
+      id: version
+      run: |
+        # Use the application itself to get the version
+        go build -o version-temp .
+        VERSION=$(./version-temp)
+        rm version-temp
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
     - name: Run tests
       run: go test -v ./...
 
@@ -67,16 +77,32 @@ jobs:
         CGO_ENABLED: 0
       run: |
         if [ "${{ matrix.goos }}" = "windows" ]; then
-          go build -ldflags="-s -w" -o version-generator-${{ matrix.os }}-${{ matrix.arch }}.exe .
+          go build -ldflags="-s -w" -o version-generator.exe .
         else
-          go build -ldflags="-s -w" -o version-generator-${{ matrix.os }}-${{ matrix.arch }} .
+          go build -ldflags="-s -w" -o version-generator .
+        fi
+
+    - name: Package binary
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        PACKAGE_NAME="version-generator-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+        mkdir -p "$PACKAGE_NAME"
+        
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          mv version-generator.exe "$PACKAGE_NAME/"
+          zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+          echo "package_file=${PACKAGE_NAME}.zip" >> $GITHUB_ENV
+        else
+          mv version-generator "$PACKAGE_NAME/"
+          tar -czf "${PACKAGE_NAME}.tar.gz" "$PACKAGE_NAME"
+          echo "package_file=${PACKAGE_NAME}.tar.gz" >> $GITHUB_ENV
         fi
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: version-generator-${{ matrix.os }}-${{ matrix.arch }}
-        path: version-generator-${{ matrix.os }}-${{ matrix.arch }}*
+        name: version-generator-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}
+        path: ${{ env.package_file }}
 
   release:
     needs: build
@@ -88,26 +114,11 @@ jobs:
       with:
         path: artifacts
 
-    - name: Create release assets
-      run: |
-        cd artifacts
-        for dir in */; do
-          if [ -d "$dir" ]; then
-            cd "$dir"
-            if ls *.exe 1> /dev/null 2>&1; then
-              zip "../${dir%/}.zip" *
-            else
-              tar -czf "../${dir%/}.tar.gz" *
-            fi
-            cd ..
-          fi
-        done
-
     - name: Upload release assets
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/*.zip
-          artifacts/*.tar.gz
+          artifacts/*/*.zip
+          artifacts/*/*.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
