@@ -13,6 +13,13 @@ import (
 	"github.com/alecthomas/kong"
 )
 
+// Version information - can be set at build time
+var (
+	Version   = "dev"     // Set via -ldflags at build time
+	GitCommit = "unknown" // Set via -ldflags at build time
+	BuildDate = "unknown" // Set via -ldflags at build time
+)
+
 type VersionInfo struct {
 	Branch       string
 	LastTag      string
@@ -38,17 +45,22 @@ type CLI struct {
 	FilePath   string           `kong:"help='Path for file (default: .VERSION)',placeholder='PATH'"`
 }
 
-// getAppVersion returns the version of the application using git
+// getAppVersion returns the version of the application
 func getAppVersion() string {
-	// Use the same logic as the application to get version
+	// If version was set at build time, use it
+	if Version != "dev" {
+		return Version
+	}
+
+	// Fallback to git-based version detection for development
 	gitHandler, err := gittype.GetGitHandler(false, ".")
 	if err != nil {
-		return "unknown"
+		return "dev-unknown"
 	}
 
 	versionInfo, err := gitHandler.GenerateVersionInfo(false)
 	if err != nil {
-		return "unknown"
+		return "dev-unknown"
 	}
 
 	return versionInfo.Version
