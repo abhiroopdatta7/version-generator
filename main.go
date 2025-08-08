@@ -41,21 +41,21 @@ func getAppVersion() string {
 	if err != nil {
 		return "unknown"
 	}
-	
+
 	versionInfo, err := gitHandler.GenerateVersionInfo(false)
 	if err != nil {
 		return "unknown"
 	}
-	
+
 	return versionInfo.Version
 }
 
 func main() {
 	var cli CLI
-	
+
 	// Get version for help display
 	version := getAppVersion()
-	
+
 	kong.Parse(&cli,
 		kong.Name("version-generator"),
 		kong.Description(fmt.Sprintf("Git Version Generator - Generate version numbers from git repository state\n\nVersion: %s", version)),
