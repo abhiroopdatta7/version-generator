@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -53,6 +55,44 @@ func (g *GoGitHandler) GenerateVersionInfo(dockerFormat bool) (*VersionInfo, err
 
 	// Generate version string
 	version := g.generateVersionString(lastTag, commitsSince, shortHash, branchName, dockerFormat)
+
+	return &VersionInfo{
+		Branch:       branchName,
+		LastTag:      lastTag,
+		CommitsSince: commitsSince,
+		ShortHash:    shortHash,
+		Version:      version,
+	}, nil
+}
+
+// GenerateVersionInfoWithOptions generates version information using go-git with custom options
+func (g *GoGitHandler) GenerateVersionInfoWithOptions(options VersioningOptions) (*VersionInfo, error) {
+	// Get current branch
+	branchName, err := g.GetCurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get short hash
+	shortHash, err := g.GetShortHash()
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the last tag
+	lastTag, err := g.GetLastTag(branchName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Count commits since last tag
+	commitsSince, err := g.GetCommitsSinceTag(lastTag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate version string using new options
+	version := g.generateVersionStringWithOptions(lastTag, commitsSince, shortHash, branchName, options)
 
 	return &VersionInfo{
 		Branch:       branchName,
@@ -443,4 +483,124 @@ func (g *GoGitHandler) generateVersionString(lastTag string, commitsSince int, s
 		// Default format: <tag>-<branch>+<count of commit>
 		return fmt.Sprintf("%s-%s+%d", lastTag, cleanBranch, commitsSince)
 	}
+}
+
+// generateVersionStringWithOptions generates version string with custom options
+func (g *GoGitHandler) generateVersionStringWithOptions(lastTag string, commitsSince int, shortHash, branchName string, options VersioningOptions) string {
+	if commitsSince == 0 && !options.Hash {
+		// We're exactly on a tag and no hash requested
+		if options.Simple {
+			return lastTag
+		}
+		if options.CalVer {
+			return g.convertToCalVer(lastTag, 0, branchName, false)
+		}
+		return lastTag
+	}
+
+	// Handle different versioning schemes
+	switch {
+	case options.CalVer:
+		return g.generateCalVerString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	case options.Semver:
+		return g.generateSemVerString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	case options.Simple:
+		return g.generateSimpleString(lastTag, commitsSince, shortHash, options.Hash)
+	default:
+		return g.generateDefaultString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	}
+}
+
+// generateCalVerString generates Calendar Versioning format
+func (g *GoGitHandler) generateCalVerString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	now := time.Now()
+	calVer := fmt.Sprintf("%d.%02d", now.Year(), now.Month())
+	
+	if commitsSince > 0 {
+		calVer = fmt.Sprintf("%s.%d", calVer, commitsSince)
+	}
+	
+	if branchName != "main" && branchName != "master" && branchName != "detached" {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		calVer = fmt.Sprintf("%s-%s", calVer, cleanBranch)
+	}
+	
+	if includeHash {
+		calVer = fmt.Sprintf("%s+%s", calVer, shortHash)
+	}
+	
+	return calVer
+}
+
+// generateSemVerString generates Semantic Versioning format
+func (g *GoGitHandler) generateSemVerString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	if commitsSince == 0 && !includeHash {
+		return lastTag
+	}
+
+	// Parse the tag to extract semver parts
+	version := lastTag
+	if strings.HasPrefix(version, "v") {
+		version = version[1:]
+	}
+
+	if branchName == "main" || branchName == "master" || branchName == "detached" {
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-dev.%d", version, commitsSince)
+		}
+	} else {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-%s.%d", version, cleanBranch, commitsSince)
+		} else {
+			version = fmt.Sprintf("%s-%s", version, cleanBranch)
+		}
+	}
+
+	if includeHash {
+		version = fmt.Sprintf("%s+%s", version, shortHash)
+	}
+
+	return "v" + version
+}
+
+// generateSimpleString generates simple version format
+func (g *GoGitHandler) generateSimpleString(lastTag string, commitsSince int, shortHash string, includeHash bool) string {
+	if includeHash {
+		return fmt.Sprintf("%s+%s", lastTag, shortHash)
+	}
+	return lastTag
+}
+
+// generateDefaultString generates default format
+func (g *GoGitHandler) generateDefaultString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	if commitsSince == 0 && !includeHash {
+		return lastTag
+	}
+
+	version := lastTag
+	if branchName == "main" || branchName == "master" || branchName == "detached" {
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s+%d", lastTag, commitsSince)
+		}
+	} else {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-%s+%d", lastTag, cleanBranch, commitsSince)
+		} else {
+			version = fmt.Sprintf("%s-%s", lastTag, cleanBranch)
+		}
+	}
+
+	if includeHash {
+		version = fmt.Sprintf("%s+%s", version, shortHash)
+	}
+
+	return version
+}
+
+// convertToCalVer is a helper function for CalVer conversion
+func (g *GoGitHandler) convertToCalVer(lastTag string, commitsSince int, branchName string, includeHash bool) string {
+	// This is a simplified implementation
+	return g.generateCalVerString(lastTag, commitsSince, "", branchName, includeHash)
 }

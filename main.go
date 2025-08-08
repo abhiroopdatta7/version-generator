@@ -22,7 +22,10 @@ type VersionInfo struct {
 
 type CLI struct {
 	Version    kong.VersionFlag `kong:"short='v',help='Show version information'"`
-	Docker     bool             `kong:"short='d',help='Use Docker version format'"`
+	Semver     bool             `kong:"help='Use Semantic Versioning format'"`
+	CalVer     bool             `kong:"help='Use Calendar Versioning format'"`
+	Simple     bool             `kong:"help='Use simple version format (no branch info)'"`
+	Hash       bool             `kong:"help='Include short hash in version'"`
 	InBuiltGit bool             `kong:"short='i',help='Use built-in go-git library instead of system git'"`
 	Go         bool             `kong:"short='g',help='Generate Go format version file'"`
 	GoPath     string           `kong:"help='Path for Go file (default: version.go)',placeholder='PATH'"`
@@ -72,8 +75,22 @@ func main() {
 		log.Fatalf("Failed to initialize git handler: %v", err)
 	}
 
-	// Generate version information
-	versionInfo, err := gitHandler.GenerateVersionInfo(cli.Docker)
+	// Determine versioning options
+	options := gittype.VersioningOptions{
+		Semver: cli.Semver,
+		CalVer: cli.CalVer,
+		Simple: cli.Simple,
+		Hash:   cli.Hash,
+	}
+
+	// Generate version information based on options
+	var versionInfo *gittype.VersionInfo
+	if options.Semver || options.CalVer || options.Simple || options.Hash {
+		versionInfo, err = gitHandler.GenerateVersionInfoWithOptions(options)
+	} else {
+		// Fallback to original method for backward compatibility
+		versionInfo, err = gitHandler.GenerateVersionInfo(false)
+	}
 	if err != nil {
 		log.Fatalf("Failed to generate version info: %v", err)
 	}

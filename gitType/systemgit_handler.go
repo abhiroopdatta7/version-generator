@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // SystemGitHandler implements GitHandler using system git executable
@@ -65,6 +66,44 @@ func (s *SystemGitHandler) GenerateVersionInfo(dockerFormat bool) (*VersionInfo,
 
 	// Generate version string
 	version := s.generateVersionString(lastTag, commitsSince, shortHash, branchName, dockerFormat)
+
+	return &VersionInfo{
+		Branch:       branchName,
+		LastTag:      lastTag,
+		CommitsSince: commitsSince,
+		ShortHash:    shortHash,
+		Version:      version,
+	}, nil
+}
+
+// GenerateVersionInfoWithOptions generates version information using system git with custom options
+func (s *SystemGitHandler) GenerateVersionInfoWithOptions(options VersioningOptions) (*VersionInfo, error) {
+	// Get current branch
+	branchName, err := s.GetCurrentBranch()
+	if err != nil {
+		return nil, err
+	}
+
+	// Get short hash
+	shortHash, err := s.GetShortHash()
+	if err != nil {
+		return nil, err
+	}
+
+	// Find the last tag
+	lastTag, err := s.GetLastTag(branchName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Count commits since last tag
+	commitsSince, err := s.GetCommitsSinceTag(lastTag)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate version string using new options
+	version := s.generateVersionStringWithOptions(lastTag, commitsSince, shortHash, branchName, options)
 
 	return &VersionInfo{
 		Branch:       branchName,
@@ -238,4 +277,124 @@ func (s *SystemGitHandler) generateVersionString(lastTag string, commitsSince in
 		// Default format: <tag>-<branch>+<count of commit>
 		return fmt.Sprintf("%s-%s+%d", lastTag, cleanBranch, commitsSince)
 	}
+}
+
+// generateVersionStringWithOptions generates version string with custom options
+func (s *SystemGitHandler) generateVersionStringWithOptions(lastTag string, commitsSince int, shortHash, branchName string, options VersioningOptions) string {
+	if commitsSince == 0 && !options.Hash {
+		// We're exactly on a tag and no hash requested
+		if options.Simple {
+			return lastTag
+		}
+		if options.CalVer {
+			return s.convertToCalVer(lastTag, 0, branchName, false)
+		}
+		return lastTag
+	}
+
+	// Handle different versioning schemes
+	switch {
+	case options.CalVer:
+		return s.generateCalVerString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	case options.Semver:
+		return s.generateSemVerString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	case options.Simple:
+		return s.generateSimpleString(lastTag, commitsSince, shortHash, options.Hash)
+	default:
+		return s.generateDefaultString(lastTag, commitsSince, shortHash, branchName, options.Hash)
+	}
+}
+
+// generateCalVerString generates Calendar Versioning format
+func (s *SystemGitHandler) generateCalVerString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	now := time.Now()
+	calVer := fmt.Sprintf("%d.%02d", now.Year(), now.Month())
+	
+	if commitsSince > 0 {
+		calVer = fmt.Sprintf("%s.%d", calVer, commitsSince)
+	}
+	
+	if branchName != "main" && branchName != "master" && branchName != "detached" {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		calVer = fmt.Sprintf("%s-%s", calVer, cleanBranch)
+	}
+	
+	if includeHash {
+		calVer = fmt.Sprintf("%s+%s", calVer, shortHash)
+	}
+	
+	return calVer
+}
+
+// generateSemVerString generates Semantic Versioning format
+func (s *SystemGitHandler) generateSemVerString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	if commitsSince == 0 && !includeHash {
+		return lastTag
+	}
+
+	// Parse the tag to extract semver parts
+	version := lastTag
+	if strings.HasPrefix(version, "v") {
+		version = version[1:]
+	}
+
+	if branchName == "main" || branchName == "master" || branchName == "detached" {
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-dev.%d", version, commitsSince)
+		}
+	} else {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-%s.%d", version, cleanBranch, commitsSince)
+		} else {
+			version = fmt.Sprintf("%s-%s", version, cleanBranch)
+		}
+	}
+
+	if includeHash {
+		version = fmt.Sprintf("%s+%s", version, shortHash)
+	}
+
+	return "v" + version
+}
+
+// generateSimpleString generates simple version format
+func (s *SystemGitHandler) generateSimpleString(lastTag string, commitsSince int, shortHash string, includeHash bool) string {
+	if includeHash {
+		return fmt.Sprintf("%s+%s", lastTag, shortHash)
+	}
+	return lastTag
+}
+
+// generateDefaultString generates default format
+func (s *SystemGitHandler) generateDefaultString(lastTag string, commitsSince int, shortHash, branchName string, includeHash bool) string {
+	if commitsSince == 0 && !includeHash {
+		return lastTag
+	}
+
+	version := lastTag
+	if branchName == "main" || branchName == "master" || branchName == "detached" {
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s+%d", lastTag, commitsSince)
+		}
+	} else {
+		cleanBranch := regexp.MustCompile(`[^a-zA-Z0-9\-]`).ReplaceAllString(branchName, "-")
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s-%s+%d", lastTag, cleanBranch, commitsSince)
+		} else {
+			version = fmt.Sprintf("%s-%s", lastTag, cleanBranch)
+		}
+	}
+
+	if includeHash {
+		version = fmt.Sprintf("%s+%s", version, shortHash)
+	}
+
+	return version
+}
+
+// convertToCalVer is a helper function for CalVer conversion
+func (s *SystemGitHandler) convertToCalVer(lastTag string, commitsSince int, branchName string, includeHash bool) string {
+	// This is a simplified implementation
+	return s.generateCalVerString(lastTag, commitsSince, "", branchName, includeHash)
 }
