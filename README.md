@@ -36,7 +36,10 @@ Run the program from within a Git repository:
 ```
 Flags:
   -h, --help              Show context-sensitive help.
-  -d, --docker            Use Docker version format
+    --semver                Use Semantic Versioning format
+    --calver                Use Calendar Versioning format
+    --simple                Use simple version format (no branch info)
+    --hash                  Include short hash in version
   -i, --in-built-git      Use built-in go-git library instead of system git
   -g, --go                Generate Go format version file
       --go-path=PATH      Path for Go file (default: version.go)
@@ -80,8 +83,7 @@ Flags:
 # Write to custom file with specific path
 ./version-generator -f --file-path=build/VERSION.txt
 
-# Use Docker format with built-in git and generate Go file
-./version-generator -i -d -g --go-path=docker/version.go
+
 
 # Generate in subdirectory (will create directories as needed)
 ./version-generator -g --go-path=build/generated/version.go
@@ -127,15 +129,13 @@ Generated Version: v1.2.3
 ### Development on Main/Master Branch
 For commits after a tag on main/master:
 ```
-Default format: v1.2.3+5
-Docker format:  v1.2.3-5
+Semver/Default: v1.2.3+5
 ```
 
 ### Feature Branch
 For commits on other branches:
 ```
-Default format: v1.2.3-feature-branch+5
-Docker format:  v1.2.3-feature-branch-5
+Semver/Default: v1.2.3-feature-branch+5
 ```
 
 ### Feature Branch with Rebase Logic
@@ -148,29 +148,24 @@ Generated Version: v1.2.3-feature-branch+3
 ### No Tags Found
 If no tags exist in the repository:
 ```
-Default format: v0.0.0+10
-Docker format:  v0.0.0-10
+Semver/Default: v0.0.0+10
 ```
 
 ## Version Format
 
 The generated version follows this pattern:
 
-### Default Format
+
+### Version Format
 ```
 <tag>-<branch>+<count>
-```
-
-### Docker Format (with -docker flag)
-```
-<tag>-<branch>-<count>
 ```
 
 Where:
 - `tag`: The most recent reachable Git tag (or from rebase point for feature branches)
 - `branch`: Current branch name (cleaned for version compatibility)
-  - For main/master branches, branch name is omitted from version
-  - Special characters are replaced with hyphens
+    - For main/master branches, branch name is omitted from version
+    - Special characters are replaced with hyphens
 - `count`: Number of commits since the last tag
 
 ## Git Backend Architecture
@@ -268,9 +263,7 @@ The tool can write version strings to files in multiple formats for integration 
 # Generate YAML for Kubernetes deployments
 ./version-generator -y --yaml-path=k8s/version.yaml
 
-# Generate Docker-compatible version for container tagging
-./version-generator -d -f --file-path=VERSION
-docker build -t myapp:$(cat VERSION) .
+
 
 # Multi-format generation for complex projects
 ./version-generator -g --go-path=pkg/version.go
