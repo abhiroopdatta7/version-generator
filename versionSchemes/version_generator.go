@@ -114,10 +114,9 @@ func (vg *VersionGenerator) GenerateSemVer(lastTag string, commitsSince int, bra
 	}
 
 	if vg.isMainBranch(branchName) {
-		// For main/master branches, don't include branch name in semver
-		// Just use the base version for releases on main branch
-		// commitsSince > 0 means we have commits since the last tag,
-		// but we don't add any prerelease identifiers for main branch
+		if commitsSince > 0 {
+			version = fmt.Sprintf("%s.%d", version, commitsSince)
+		}
 	} else {
 		cleanBranch := vg.cleanBranchName(branchName)
 		if commitsSince > 0 {
